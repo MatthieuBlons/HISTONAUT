@@ -18,6 +18,19 @@ lightning_logs/
 *.pth
 *.ckpt
 
+# Model checkpoints (never commit weights)
+*.pt.tar
+*.bin
+*.safetensors
+*.onnx
+*.gguf
+.cache/
+# model_zoo: ignore everything, keep only code and the registry
+histonaut/encoder/model_zoo/**
+!histonaut/encoder/model_zoo/**/
+!histonaut/encoder/model_zoo/**/*.py
+!histonaut/encoder/model_zoo/local_ckpts.json
+
 # Data
 *.h5
 *.hdf5

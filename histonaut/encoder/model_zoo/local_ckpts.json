@@ -1,0 +1,19 @@
+{
+    "conch_v1": "",
+    "uni_v1": "",
+    "uni_v2": "",
+    "ctranspath": "./ctranspath/CHIEF_CTransPath.pth",
+    "phikon": "./phikon",
+    "resnet50": "",
+    "gigapath": "",
+    "virchow": "",
+    "virchow2": "",
+    "hoptimus0": "",
+    "hoptimus1": "",
+    "PROiFHESi_H1": "./PROiFHESi_H1/model/model_best.pt.tar",
+    "phikon_v2": "./phikon_v2",
+    "conch_v15": "./conchv1_5/pytorch_model_vision.bin",
+    "custom_encoder": "",  
+    "chief": "/cluster/CBIO/home/mblons/py-packages/CHIEF",
+    "madeleine": "./MADELEINE"
+}
