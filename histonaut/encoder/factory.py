@@ -67,6 +67,7 @@ def get_encoder_mapping():
         "PROiFHESi_H1": PROiFHESiH1InferenceEncoder,
         "virchow": VirchowInferenceEncoder,
         "virchow2": Virchow2InferenceEncoder,
+        "virchow2-cls": Virchow2ClsInferenceEncoder,
         "phikon": PhikonInferenceEncoder,
         "phikon_v2": Phikonv2InferenceEncoder,
         "musk": MuskInferenceEncoder,
@@ -220,7 +221,7 @@ class BasePatchEncoder(torch.nn.Module):
         z = self.model.forward_features(x)
         return z
 
-    def print_summary(self, depth=4, verbose=0):
+    def print_summary(self, depth=4, verbose=1):
         """Print a `torchinfo` summary of the model.
 
         Parameters
@@ -229,7 +230,7 @@ class BasePatchEncoder(torch.nn.Module):
             Depth of nested layers to display. Default is 4.
 
         verbose : int, optional
-            `torchinfo` verbosity level. Default is 0.
+            `torchinfo` verbosity level. Default is 1.
         """
         model_summary(self.model, depth=depth, verbose=verbose)
 
@@ -1020,6 +1021,21 @@ class Virchow2InferenceEncoder(BasePatchEncoder):
         embedding = torch.cat([class_token, patch_tokens.mean(1)], dim=-1)
         return embedding
 
+class Virchow2ClsInferenceEncoder(Virchow2InferenceEncoder):
+    """
+    Virchow2 returning the class token only (1280-dim) instead of the default class+mean
+    concatenation (2560-dim). 
+    
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def _build(self, target_img_size=None):
+        # Virchow2 is reused here -- the weights are identical, only the pooling differs.
+        model, eval_transform, precision = super()._build(return_cls=True, target_img_size=target_img_size)
+        self.enc_name = 'virchow2-cls'
+        return model, eval_transform, precision
 
 class HOptimus0InferenceEncoder(BasePatchEncoder):
     """H-optimus-0 patch encoder (HF `bioptimus/H-optimus-0`, via `timm`).
