@@ -24,7 +24,7 @@ class PatchSampler(Dataset):
         Transform applied to each tile.
     """
 
-    def __init__(self, patcher, transform):
+    def __init__(self, patcher, transform = None):
         """Store the patcher and the transform.
 
         Parameters

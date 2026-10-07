@@ -15,7 +15,6 @@ from functools import partial
 import numpy as np
 import PIL
 import cv2
-from torch.utils.data import Dataset
 
 # Tensor op
 
@@ -54,10 +53,10 @@ class SlidePatcher:
     On construction, the patcher resolves the pyramid level closest to
     `mag_target`, picks the right level for the tissue mask, builds the tissue mask
     and (optional) a tile selection functions.
-    
-    If `lazy` (default) is True, immediately computes the valid patch coordinates 
+
+    If `lazy` (default) is True, immediately computes the valid patch coordinates
     (and saves them when `dst` is given).
-    
+
     The instance is then indexable and iterable over the valid patches.
 
     Parameters
@@ -94,7 +93,7 @@ class SlidePatcher:
         at the patching level `level`.
 
     margin : int | None, optional
-        Border, in pixels of the mask level, removed on each side of the mask. 
+        Border, in pixels of the mask level, removed on each side of the mask.
         Default is None, meaning 1% of the mask height and width.
 
     mask_tolerance : int, optional
@@ -113,7 +112,7 @@ class SlidePatcher:
         selection are skipped. Default is None.
 
     overwrite : bool, optional
-        Whether to save the coordinates to `dst` during lazy patching. 
+        Whether to save the coordinates to `dst` during lazy patching.
         Default is True.
 
     selection_strategy : str, optional
@@ -266,7 +265,9 @@ class SlidePatcher:
     }
 
     # Creating a dictionary to store the tile selection strategies mapping with the corresponding function
-    tile_selection_mapping = {"hog": hog_selection_torch}
+    tile_selection_mapping = {
+        "hog": hog_selection_torch,
+    }
 
     def __init__(
         self,
@@ -282,7 +283,7 @@ class SlidePatcher:
         mask_tolerance: int = None,
         mask_strategy: str = "otsu",
         custom_mask: np.ndarray = None,
-        custom_xywh: np.ndarray = None, # Could also be a str -> path to coords h5 file
+        custom_xywh: np.ndarray = None,  # Could also be a str -> path to coords h5 file
         overwrite: bool = True,
         selection_strategy: str = None,
         color_thresh: tuple[int, int, int] = None,
@@ -1193,7 +1194,7 @@ class SlidePatcher:
     def visualize_tissue_seg(
         self,
         size: tuple[int, int],
-        save_seg: str = None,
+        save_seg: str | None = None,
         show: bool = False,
         *args,
         **kwargs,
@@ -1254,7 +1255,7 @@ class SlidePatcher:
     def visualize_cut(
         self,
         size: tuple[int, int],
-        save_cut: str = None,
+        save_cut: str | None = None,
         show: bool = False,
         *args,
         **kwargs,
@@ -1447,9 +1448,9 @@ class SlidePatcher:
     def save_patch(self, dst: str = None, save_as: str = "h5") -> str:
         """Save the valid patch coordinates and patching metadata.
 
-        Writes ``<dst>/patches/<slide.name>_patches.<save_as>`` (overwritten if
-        it exists). 
-        
+        Writes ``<dst>/patches/<slide.name>.<save_as>`` (overwritten if
+        it exists).
+
         For ``"h5"``, the `coords` dataset holds `valid_patches` as
         an `(N, 4)` `xywh` array (pixels at `level`) and its attributes store
         `magnification`, `mpp`, `target_magnification`, `target_patch_size`,
@@ -1461,7 +1462,7 @@ class SlidePatcher:
         ----------
         dst : str, optional
             Output directory. Default is None, but a path is required.
-            
+
         save_as : str, optional
             Output format; only ``"h5"`` is supported. Default is ``"h5"``.
 
@@ -1500,9 +1501,7 @@ class SlidePatcher:
 
             # Creating path to the patch file
             os.makedirs(os.path.join(dst, "patches"), exist_ok=True)
-            patch_file = os.path.join(
-                dst, "patches", f"{self.slide.name}_patches.{save_as}"
-            )
+            patch_file = os.path.join(dst, "patches", f"{self.slide.name}.{save_as}")
 
             # Save the assets and attributes to a h5 file
             save_h5(
@@ -1517,6 +1516,3 @@ class SlidePatcher:
 
         # Returning the path to the patch file
         return patch_file
-
-
-
