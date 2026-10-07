@@ -25,6 +25,7 @@ lightning_logs/
 *.onnx
 *.gguf
 .cache/
+
 # model_zoo: ignore everything, keep only code and the registry
 histonaut/encoder/model_zoo/**
 !histonaut/encoder/model_zoo/**/
@@ -40,3 +41,14 @@ histonaut/encoder/model_zoo/**
 *.xlsx
 *.npy
 *.npz
+*.tiff
+*.tif
+*.vms
+*.vmu
+*.scn
+*.mrxs
+*.svslide
+*.bif
+*.jpg
+*.jpeg
+*.png
