@@ -1021,11 +1021,12 @@ class Virchow2InferenceEncoder(BasePatchEncoder):
         embedding = torch.cat([class_token, patch_tokens.mean(1)], dim=-1)
         return embedding
 
+
 class Virchow2ClsInferenceEncoder(Virchow2InferenceEncoder):
     """
     Virchow2 returning the class token only (1280-dim) instead of the default class+mean
-    concatenation (2560-dim). 
-    
+    concatenation (2560-dim).
+
     """
 
     def __init__(self, **kwargs):
@@ -1033,9 +1034,12 @@ class Virchow2ClsInferenceEncoder(Virchow2InferenceEncoder):
 
     def _build(self, target_img_size=None):
         # Virchow2 is reused here -- the weights are identical, only the pooling differs.
-        model, eval_transform, precision = super()._build(return_cls=True, target_img_size=target_img_size)
-        self.enc_name = 'virchow2-cls'
+        model, eval_transform, precision = super()._build(
+            return_cls=True, target_img_size=target_img_size
+        )
+        self.enc_name = "virchow2-cls"
         return model, eval_transform, precision
+
 
 class HOptimus0InferenceEncoder(BasePatchEncoder):
     """H-optimus-0 patch encoder (HF `bioptimus/H-optimus-0`, via `timm`).
