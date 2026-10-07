@@ -1,0 +1,14 @@
+selection_strategy: hog_torch
+hog_thresh: 0.5
+stat_fct: channel_std
+color_thresh: 3.5
+q: 0.2
+local_average: true
+filter_size: 16
+remove_background: true
+background_thresh: 240
+background_average: false
+filter_all: false
+aggregate: mean
+plot_invalid_patch: null
+invalid_on: all
