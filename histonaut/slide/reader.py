@@ -12,11 +12,16 @@ from pathlib import Path
 
 # Data libraries
 import numpy as np
+import random
 
 # Image reader
 import openslide
 import PIL
 from openslide import OpenSlide
+
+# Project modules
+from histonaut.slide.utils import vips_to_numpy, arr_to_pil, get_x_y_to
+
 
 OPENSLIDE_READABLE_FORMATS = [
     ".svs",
@@ -74,7 +79,7 @@ def parse_slide_path(slide: str | Path) -> tuple[str, str]:
         raise FileNotFoundError(f"Configuration file not found: {slide}")
 
     slide = Path(slide)
-    return slide.name, slide.stem, slide.parent
+    return slide.name, slide.suffix, slide.parent
 
 
 def check_openslide(slide: str | Path):
@@ -96,12 +101,13 @@ def check_openslide(slide: str | Path):
     FileNotFoundError
         If `slide` is not an existing file (from `parse_slide_path`).
     """
-    _, ext, _ = parse_slide_path(slide)
+    slide = Path(slide)
+    _, ext, _ = parse_slide_path(slide) 
     is_readable = ext.lower() in OPENSLIDE_READABLE_FORMATS
     return is_readable
 
 
-def get_slide_reader(slide):
+def get_slide_reader(slide: str | Path):
     """Return the reader class suited to open a slide.
 
     Parameters
@@ -122,12 +128,18 @@ def get_slide_reader(slide):
     FileNotFoundError
         If `slide` is not an existing file (from `parse_slide_path`).
     """
+    slide = Path(slide)
+    name, ext, _ = parse_slide_path(slide)  
+
+    if ".ome" in name:
+        return OpenOME
 
     if check_openslide(slide):
         return OpenWSI
+
     # possibility to add slide readers
+
     else:
-        _, ext, _ = parse_slide_path(slide)
         raise TypeError(
             f"Slide: {slide} as invalid extension: {ext}. Accepts: {OPENSLIDE_READABLE_FORMATS}"
         )
@@ -150,12 +162,12 @@ def openslide_metadata_to_xml(slide: str | Path):
 
 
 # get metadata of slide (uses openslide to handle the image, must be compatible)
-def get_openslide_pyramid_info(slide, verbose=False):
+def get_openslide_pyramid_info(slide: str | Path | openslide.OpenSlide, verbose=False):
     """Collect pyramid metadata of an OpenSlide-compatible slide.
 
     Parameters
     ----------
-    slide : str | openslide.OpenSlide
+    slide : str | Path | openslide.OpenSlide
         Slide path or already opened `OpenSlide` object.
 
     verbose : bool, optional
@@ -172,17 +184,9 @@ def get_openslide_pyramid_info(slide, verbose=False):
         - `"objective"`: objective power (magnification), as `int`.
         - `"downsampling"`: list of per-level downsample factors, as `int`.
 
-    Raises
-    ------
-    KeyError
-        If one of the required `openslide.*` properties is missing.
-
-    ValueError
-        If a property cannot be converted with `int` (e.g. a non-integer
-        downsample string such as `"4.0001"`).
     """
     # assert slide format
-    if isinstance(slide, str):
+    if isinstance(slide, (str, Path)):
         slide = OpenSlide(slide)
     slide_prop = dict(slide.properties)
     infos = {
@@ -641,3 +645,394 @@ def get_slide_image(slide, para, numpy=True):
         if numpy:
             slide = np.array(slide)[:, :, 0:3]
     return slide
+
+
+import xml.etree.ElementTree as ET
+import pyvips
+
+VIPS_READABLE_FORMATS = [*pyvips.get_suffixes(), ".ome.tiff", ".ome.tif"]
+
+
+def read_ome_xml(xml, key, findall=True):
+    root = ET.fromstring(xml)
+    namespace = {"ome": "http://www.openmicroscopy.org/Schemas/OME/2016-06"}
+    search = ".//ome:" + key
+    if findall:
+        return root.findall(search, namespace)
+    else:
+        return root.find(search, namespace)
+
+
+# OpenOME class should be consistent with OpenSlide
+class OpenOME:
+    """
+    The `OpenOME` class provides an interface to work with Bioformat images using pyvips.
+    It mirors the basic operation of OpenSlide class objects provided by the OpenSlide project.
+
+    Attributes:
+    -----------
+    img_path : str
+        Path to the WSI file.
+
+    """
+
+    def __init__(
+        self, img_path: str, name: Optional[str] = None, mpp: Optional[float] = None
+    ):
+        """
+        Initialize the `OpenSlideWSI` object for working with a Whole Slide Image (WSI).
+
+        Args:
+        -----
+
+        Example:
+        --------
+        """
+        self.img_path = img_path
+        if name is None:
+            self.name, self.ext = os.path.splitext(os.path.basename(img_path))
+        else:
+            self.name, self.ext = os.path.splitext(name)
+        self.img = pyvips.Image.new_from_file(self.img_path, access="sequential")
+        self.mpp = mpp
+        self._fetch_meta()
+        self.dimensions = (self.width, self.height)
+        self.mag = None
+        self._fetch_magnification()
+        self._fetch_level_count()
+        self.level_dimensions = self._fetch_level_dimensions()
+        self.level_downsamples = self._fetch_level_downsamples()
+        self.check_if_rgb()
+        self.check_if_multiplex()
+
+    def description(self, verbose=False):
+        description = self.img.get("image-description")
+        if verbose:
+            print(description)
+        return description
+
+    def fields(self, verbose=False):
+        fields = self.img.get_fields()
+        if verbose:
+            print(fields)
+        return fields
+
+    def _fetch_meta(self):
+        fields = self.fields()
+        pixel_infos = self.get_pixel_info()
+        if "vips-loader" in fields:
+            self.loader = self.img.get("vips-loader")
+        if "format" in fields:
+            self.format = self.img.get("format")
+        if "width" in fields:
+            self.width = self.img.get("width")
+        else:
+            self.width = pixel_infos["XYZ"][0]
+        if "height" in fields:
+            self.height = self.img.get("height")
+        else:
+            self.height = pixel_infos["XYZ"][1]
+        self.depth = pixel_infos["XYZ"][2]
+        self.channels = pixel_infos["C"]
+        self.physical_unit = pixel_infos["physical_unit"]
+        self.mpp = round(pixel_infos["physical_size"][0], 4)
+        if "n-pages" in fields:
+            self.pages = self.img.get("n-pages")
+        if "bands" in fields:
+            self.bands = self.img.get("bands")
+        # channel info when pages == 1 and bands > 4? multiplexed
+        if self.pages > 1:
+            channel_infos = self.get_channel_info()
+            self.channel_colors = np.array(channel_infos["falsecolors"])
+            self.channel_names = channel_infos["names"]
+
+    def _fetch_magnification(self):
+        if self.mpp is not None:
+            mpp_x = self.mpp
+        else:
+            raise ValueError(f"Unable to fetch mpp, must be manually set")
+        if mpp_x is not None:
+            if mpp_x < 0.16:
+                self.magnification = 80
+            elif mpp_x < 0.2:
+                self.magnification = 60
+            elif mpp_x < 0.3:
+                self.magnification = 40
+            elif mpp_x < 0.6:
+                self.magnification = 20
+            elif mpp_x < 1.2:
+                self.magnification = 10
+            elif mpp_x < 2.4:
+                self.magnification = 5
+            else:
+                raise ValueError(f"Identified mpp is too low: mpp={mpp_x}")
+        else:
+            # Use metadata-based magnification as a fallback if mpp_x is not available
+            pixel_infos = self.get_pixel_info()
+            self.magnification = pixel_infos["mag"]
+
+    def _fetch_level_count(self):
+        fields = self.fields()
+        if "n-subifds" in fields:
+            self.level_count = self.img.get("n-subifds") + 1
+        else:
+            self.level_count = 0
+
+    def _fetch_level_dimensions(self):
+        level_dimensions = []
+        if self.level_count:
+            for level in range(self.level_count):
+                img_level = pyvips.Image.tiffload(self.img_path, subifd=level - 1)
+                dim = (img_level.width, img_level.height)
+                level_dimensions.append(dim)
+        return level_dimensions
+
+    def _fetch_level_downsamples(self):
+        level_downsamples = []
+        for level in range(self.level_count):
+            down_x, down_y = (
+                self.level_dimensions[0][0] / self.level_dimensions[level][0],
+                self.level_dimensions[0][1] / self.level_dimensions[level][1],
+            )
+            down = max(down_x, down_y)
+            level_downsamples.append(down)
+        return level_downsamples
+
+    # Check if subifs or not
+    # get meta data with ometif (use a function from OME.utils)
+    def get_pixel_info(self, verbose=False):
+        description = self.description()
+        pixels = read_ome_xml(description, "Pixels", findall=False)
+        info_dict = {
+            "XYZ": tuple,
+            "C": int,
+            "T": int,
+            "physical_size": tuple,
+            "physical_unit": str,
+        }
+        X = int(pixels.get("SizeX"))
+        Y = int(pixels.get("SizeY"))
+        Z = int(pixels.get("SizeZ"))
+        C = int(pixels.get("SizeC"))
+        T = int(pixels.get("SizeT"))
+        info_dict["XYZ"] = (X, Y, Z)
+        info_dict["C"] = C
+        info_dict["T"] = T
+        info_dict["physical_size"] = (
+            float(pixels.get("PhysicalSizeX")),
+            float(pixels.get("PhysicalSizeY")),
+        )
+        info_dict["physical_unit"] = pixels.get("PhysicalSizeXUnit")
+        # get magnification
+        if verbose:
+            print(info_dict)
+        return info_dict
+
+    def get_channel_info(self, verbose=False):
+        if not self.pages > 1:
+            raise AttributeError("OME with single page has no channels info")
+        description = self.description()
+        channels = read_ome_xml(description, "Channel", findall=True)
+        info_dict = {"num_channels": int, "names": [], "falsecolors": []}
+        cnt = 0
+        for channel in channels:
+            cnt += 1
+            try:
+                color = int(channel.get("Color"))
+            except TypeError:
+                color = None
+            if color is None:
+                color = random.randint(0, 0xFFFFFFFF)
+            # Convert integer color to RGB
+            r = (color >> 24) & 0xFF
+            g = (color >> 16) & 0xFF
+            b = (color >> 8) & 0xFF
+            a = color & 0xFF
+            info_dict["falsecolors"].append((r, g, b))
+            info_dict["names"].append(channel.get("Name"))
+        info_dict["num_channels"] = cnt
+        if verbose:
+            print(
+                [
+                    f"name: {n} with color: {c}"
+                    for (n, c) in zip(info_dict["names"], info_dict["falsecolors"])
+                ]
+            )
+        return info_dict
+
+    def check_if_rgb(self):
+        self.is_rgb = False
+        if self.pages == 1 and self.bands == 3:
+            self.is_rgb = True
+
+    def check_if_multiplex(self):
+        self.is_multiplex = False
+        if self.pages > 1 and self.bands == 1:
+            self.is_multiplex = True
+        elif self.pages == 1 and self.bands > 4:
+            self.is_multiplex = True
+
+    def open_vips(self, level):
+        if self.pages > 1:
+            pages = [
+                pyvips.Image.tiffload(
+                    self.img_path, page=i, subifd=level - 1, access="sequential"
+                )
+                for i in range(0, self.pages)
+            ]
+            img = pages[0].bandjoin(pages[1:])
+        else:
+            # The full-size image is not in subifd but in the main IFD and can be accessed with subifd=-1.
+            img = pyvips.Image.tiffload(
+                self.img_path, subifd=level - 1, access="sequential"
+            )
+        return img
+
+    def read_whole(self, level, numpy=True):
+        if level > self.level_count:
+            level = self.level_count - 1
+            print("pyramidal level was set to lowest...")
+        whole = self.open_vips(level=level)
+        if numpy:
+            return vips_to_numpy(whole, format=self.format)
+        else:
+            whole = vips_to_numpy(whole, format=self.format)
+            return arr_to_pil(whole)
+
+    def read_region(self, location, level, size, numpy=True):
+        x, y = location
+        if level > self.level_count:
+            level = self.level_count - 1
+            print("pyramidal level was set to lowest...")
+        w, h = size
+        dim_0 = self.dimensions
+        dim_level = self.level_dimensions
+        x, y = get_x_y_to(
+            (x, y),
+            dim_0,
+            dim_level[level],
+            integer=True,
+        )
+        whole = self.open_vips(level=level)
+        if x + w > whole.width or y + h > whole.height:
+            print(
+                f"crop region is out of image bounds {whole.width} x {whole.height}. size was set accordingly"
+            )
+            w = whole.width - x
+            h = whole.height - y
+        crop = whole.crop(x, y, w, h)  # (x, y, w, h)
+        if numpy:
+            return vips_to_numpy(crop, format=self.format)
+        else:
+            crop = vips_to_numpy(crop, format=self.format)
+            return arr_to_pil(crop)
+
+    def get_thumbnail(self, size: tuple = (1024, 1024), numpy=False):
+        if self.width > self.height:
+            thumbnail_width = size[0]
+            thumbnail_height = int(size[1] * self.height / self.width)
+        else:
+            thumbnail_height = size[1]
+            thumbnail_width = int(size[0] * self.width / self.height)
+        thumbnail_dimensions = (thumbnail_width, thumbnail_height)
+        downsample_factor = max(
+            dim / thumb for dim, thumb in zip(self.dimensions, thumbnail_dimensions)
+        )
+        best_level, _, _ = self.get_best_level_for_downsample(downsample_factor)
+        whole = self.open_vips(best_level)
+        sacling_final = max(
+            dim / thumb
+            for dim, thumb in zip(
+                self.level_dimensions[best_level], thumbnail_dimensions
+            )
+        )
+        thumbnail = whole.resize(1 / sacling_final)
+        thumbnail = vips_to_numpy(thumbnail, format=self.format)
+        if numpy:
+            return thumbnail
+        else:
+            return arr_to_pil(thumbnail)
+
+    def get_single_channel_thumbnail(
+        self,
+        size: tuple = (1024, 1024),
+        key: Optional[str] | None = None,
+        idx: int | None = None,
+        numpy: bool = False,
+    ):
+        if not self.is_multiplex:
+            raise TypeError(
+                "Single channel display is only supported for multiplex images"
+            )
+
+        if key == None and idx == None:
+            raise AttributeError("need to provide a channel key or index")
+
+        if self.width > self.height:
+            thumbnail_width = size[0]
+            thumbnail_height = int(size[1] * self.height / self.width)
+        else:
+            thumbnail_height = size[1]
+            thumbnail_width = int(size[0] * self.width / self.height)
+        thumbnail_dimensions = (thumbnail_width, thumbnail_height)
+        downsample_factor = max(
+            dim / thumb for dim, thumb in zip(self.dimensions, thumbnail_dimensions)
+        )
+        best_level, _, _ = self.get_best_level_for_downsample(downsample_factor)
+        whole = self.open_vips(best_level)
+        sacling_final = max(
+            dim / thumb
+            for dim, thumb in zip(
+                self.level_dimensions[best_level], thumbnail_dimensions
+            )
+        )
+        thumbnail = whole.resize(1 / sacling_final)
+        thumbnail = vips_to_numpy(thumbnail, format=self.format)
+        if idx is not None:
+            color = self.channel_colors[idx]
+            thumbnail = thumbnail[:, :, idx]
+        if key is not None:
+            for i, name in enumerate(self.channel_names):
+                if key in name:
+                    break
+            color = self.channel_colors[i]
+            thumbnail = thumbnail[:, :, i]
+
+        if numpy:
+            return thumbnail
+        else:
+            return arr_to_pil(thumbnail)
+
+    def get_best_level_for_downsample(
+        self, ask_downsample: float, precision: float = 0.01
+    ):
+        level_downsamples = self.level_downsamples
+        # First, check for a close match
+        for level_best, level_downsample in enumerate(level_downsamples):
+            if abs(level_downsample - ask_downsample) <= precision:
+                return (
+                    level_best,
+                    level_downsample,
+                    1,
+                )  # Exact match, no custom downsampling needed
+        # If not,
+        if ask_downsample >= level_downsamples[0]:
+            # Downsampling: find the highest level_downsample less than or equal to the desired downsample
+            level_best = None
+            for level, level_downsample in enumerate(level_downsamples):
+                if level_downsample <= ask_downsample:
+                    level_best = level
+                    resize_factor = level_downsample / ask_downsample
+                else:
+                    break  # level_downsamples are sorted, no need to check further
+            if level_best is not None:
+                return level_best, level_downsamples[level_best], resize_factor
+        else:
+            # Upsampling: find the smallest level_downsample greater than or equal to the desired downsample
+            for level, level_downsample in enumerate(level_downsamples):
+                if level_downsample >= ask_downsample:
+                    resize_factor = ask_downsample / level_downsample
+                    return level, level_downsamples[level], resize_factor
+
+        # If no suitable level is found, raise an error
+        raise ValueError(f"No level found for downsample {ask_downsample}.")

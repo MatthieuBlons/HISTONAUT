@@ -1,5 +1,8 @@
 """Coordinate rescaling helpers between pyramid levels."""
 
+# Image libraries
+from cv2 import convertScaleAbs
+from PIL import Image
 
 def get_size_to(size, downsample_from, downsample_to, integer=True):
     """Rescale a size from one downsample factor to another.
@@ -74,3 +77,14 @@ def get_x_y_to(point, dim_from, dim_to, integer=True):
     else:
         point_l = (x_l, y_l)
     return point_l
+
+
+def vips_to_numpy(img, format=None):
+    arr = img.numpy()
+    if format == "ushort":
+        arr = convertScaleAbs(arr, alpha=(255.0 / 65535.0))
+    return arr
+
+
+def arr_to_pil(img):
+    return Image.fromarray(img, mode="RGB")
