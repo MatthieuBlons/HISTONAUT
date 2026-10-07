@@ -8,10 +8,13 @@ stored as dataset attributes.
 # General libraries
 import json
 import h5py
+from pathlib import Path
 
 # Data libraries
 import numpy as np
 
+def safe_mkdir(path):
+    Path(path).mkdir(parents=True, exist_ok=True)
 
 def read_h5(path, key: str, mode: str = "r") -> tuple[dict, np.ndarray]:
     """Read a dataset and its attributes from an h5 file.
