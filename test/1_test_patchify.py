@@ -560,7 +560,7 @@ def main(
             **resolve_patcher_kwargs(args, slide.name),
         )
 
-        if args.save_tiles:
+        if "tiles" in output_dirs:
             summary_rows = export_tiles_as_jpeg(
                 patcher,
                 tiles_dir=output_dirs["tiles"],
@@ -574,14 +574,14 @@ def main(
                 index=False,
             )
 
-        if args.save_mask:
+        if "segmentation" in output_dirs:
             patcher.visualize_tissue_seg(
                 size=VISUALIZATION_SIZE,
                 save_seg=output_dirs["segmentation"],
                 show=False,
             )
 
-        if args.save_grid:
+        if "visualization" in output_dirs:
             patcher.visualize_cut(
                 size=VISUALIZATION_SIZE,
                 save_cut=output_dirs["visualization"],
