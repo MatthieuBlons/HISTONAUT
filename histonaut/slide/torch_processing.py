@@ -109,7 +109,7 @@ def hog_selection_torch(
     cells_per_block: int = 2,
     use_grayscale: bool = False,
     device: str = "cpu",
-    batch_size: int = 1024,
+    batch_size: int = 512,
     num_workers: int = 0,
 ):
     """Select patches by the mean (and optionally std) of their HOG image.

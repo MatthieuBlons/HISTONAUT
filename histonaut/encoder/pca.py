@@ -60,7 +60,7 @@ def get_feat_files(feat_dir):
     return files
 
 
-def fit(feat_dir):
+def fit_pca(feat_dir):
     """Fit an incremental PCA on the patch features of a directory.
 
     1-D feature arrays are treated as a single row and all-zero matrices are

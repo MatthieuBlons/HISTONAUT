@@ -283,7 +283,7 @@ class SlidePatcher:
         mask_tolerance: int = None,
         mask_strategy: str = "otsu",
         custom_mask: np.ndarray = None,
-        custom_xywh: np.ndarray = None,  # Could also be a str -> path to coords h5 file
+        custom_xywh: np.ndarray = None,  # Could also be a str -> path to coords h5 file in that case it should read the attributes
         overwrite: bool = True,
         selection_strategy: str = None,
         color_thresh: tuple[int, int, int] = None,
@@ -1042,6 +1042,9 @@ class SlidePatcher:
         # Retrieving all valid tiles
         tiles = self.get_all_tiles(patch_list)
 
+        print(f"retrieved N={len(tiles)} tiles")
+        exit()
+
         # Performing tile selection using the selection strategy
         if select_tiles:
             idx_selected = self.tile_selection(img_list=tiles, *args, **kwargs)
@@ -1496,7 +1499,7 @@ class SlidePatcher:
                 "tissue_thr": self.mask_tolerance,
                 "mask": self.mask_strategy,
                 "name": self.slide.name,
-                "savetodir": dst,
+                "savetodir": str(dst),
             }
 
             # Creating path to the patch file

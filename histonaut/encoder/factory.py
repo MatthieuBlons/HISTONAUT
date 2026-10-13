@@ -1,6 +1,6 @@
 """Build patch-level and slide-level encoders.
 
-Mostly a fork of TRIDENT
+Most model are based on a fork of TRIDENT
 (https://github.com/mahmoodlab/TRIDENT/blob/main/trident/patch_encoder_models/load.py).
 
 Each encoder is a `torch.nn.Module` whose `_build()` method creates the model
