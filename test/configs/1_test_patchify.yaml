@@ -2,7 +2,7 @@ ext: svs
 pixel_size_0: null
 pixel_size_target: null
 mag_target: 20
-patch_size: 512
+patch_size: 224
 overlap: 0
 mask_downsample: 64
 margin: null

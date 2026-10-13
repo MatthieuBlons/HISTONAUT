@@ -1,4 +1,4 @@
-selection_strategy: hog_torch
+selection_strategy: hog
 hog_thresh: 0.5
 stat_fct: channel_std
 color_thresh: 3.5
@@ -10,5 +10,5 @@ background_thresh: 240
 background_average: false
 filter_all: false
 aggregate: mean
-plot_invalid_patch: null
+update_viz: true
 invalid_on: all

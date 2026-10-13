@@ -262,7 +262,7 @@ def build_test_parser() -> ArgumentParser:
     parser.add_argument(
         "--plot_invalid_patch",
         type=int,
-        default=None,
+        default=0,
         help="Number of invalid patches to sample and plot. 0 plots all of them; "
         "omit to skip the plot.",
     )
@@ -697,6 +697,7 @@ def tile_selection_from_wsi_name(
             mode="w",
         )
 
+
     # Save tiles
     if save_tiles:
         summary_rows = export_tiles_as_jpeg(
@@ -735,7 +736,6 @@ def main(
     configure_logging(verbose=args.verbose)
     log_configuration(vars(args))
     device = resolve_device(args)
-
     output_dirs = build_test_directory(args)
     patches = resolve_input_files(args, output_dirs["patches"])
 

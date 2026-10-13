@@ -1,0 +1,7 @@
+ext_wsi: svs
+save_variance: true
+save_rep: rgb
+level_to_view: 4
+alpha: 1.0
+tqdm: true
+clock: true
