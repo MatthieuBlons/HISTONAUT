@@ -1042,9 +1042,6 @@ class SlidePatcher:
         # Retrieving all valid tiles
         tiles = self.get_all_tiles(patch_list)
 
-        print(f"retrieved N={len(tiles)} tiles")
-        exit()
-
         # Performing tile selection using the selection strategy
         if select_tiles:
             idx_selected = self.tile_selection(img_list=tiles, *args, **kwargs)

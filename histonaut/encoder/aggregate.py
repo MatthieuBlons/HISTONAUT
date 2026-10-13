@@ -122,7 +122,7 @@ def aggragate_tiles_features(
             "features": {
                 "encoder": slide_encoder.enc_name,
                 "name": slide_name,
-                "dst": dst,
+                "dst": str(dst),
             },
             "tile_features": tile_attrs,
             "coords": xywh_attrs,
