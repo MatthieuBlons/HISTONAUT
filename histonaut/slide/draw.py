@@ -22,7 +22,7 @@ from matplotlib import axes, patches
 
 # Image transform
 from skimage.color import rgb2gray
-from scipy.ndimage import gaussian_filter, gaussian_filter1d
+from scipy.ndimage import gaussian_filter
 
 # Image readers
 import cv2
@@ -32,6 +32,91 @@ import openslide
 # Project modules
 from histonaut.slide.utils import get_x_y_to, get_size_to
 from histonaut.slide.reader import OpenWSI, get_slide_reader, get_slide_whole
+
+
+def get_idx_fig(flat_idx: int, n_cols: int, n_rows: int) -> int | tuple[int, int]:
+    """
+    Get figure's 1D or 2D index from the flattened index.
+
+    Parameters
+    ----------
+    flat_idx: int
+        index in the figure's flattened grid.
+    n_cols: int
+        figure's grid number of columns.
+    n_rows: int
+        figure's grid number of rows.
+
+    Returns
+    -------
+    i_fig: int or tuple of int
+        figure's corresponding 1D or 2D index.
+
+    """
+
+    # Retrieving axis specifications
+    if n_rows == 1:
+        i_fig = flat_idx % n_cols
+    elif n_cols == 1:
+        i_fig = flat_idx % n_rows
+    else:
+        i_fig = (flat_idx // n_cols, flat_idx % n_cols)
+
+    # Returning indices of figures
+    return i_fig
+
+
+def get_ax_fig(ax: np.ndarray | plt.Axes, flat_idx: int) -> int | tuple[int, int]:
+    """
+    Get figure's corresponding axes at index `flat_idx` if the array was flattened.
+
+    Parameters
+    ----------
+    ax: array of plt.Axes or plt.Axes
+        array containing the figure's axes or directly the figure's axes.
+    flat_idx: int
+        index in the figure's flattened grid.
+
+    Returns
+    -------
+    ax_: int or tuple of int
+        figure's corresponding axes at the specified index if the array was flattened.
+    """
+
+    # Returning corresponding axis
+    if isinstance(ax, plt.Axes):
+        return ax
+    else:
+        i_fig = get_idx_fig(flat_idx, n_cols=ax.shape[1], n_rows=ax.shape[0])
+        return ax[i_fig]
+
+
+def clear_unused_axes(ax: np.ndarray, start_idx: int, last_idx: int = None):
+    """
+    Clear unused axes from index `start_idx` to `last_idx` in array of plt.Axes stored in `ax`.
+
+    Parameters
+    ----------
+    ax: np.ndarray of plt.Axes
+        array containing the figure's axes.
+    start_idx: int
+        flat index from which to start clearing the subfigures' axes.
+    last_idx: int
+        flat index at which to stop clearing the subfigures' axes, default=None, meaning it will
+        stop at the last subfigure.
+
+    """
+
+    # Parsing last index arg
+    if last_idx is None:
+        last_idx = ax.shape[0] * ax.shape[1] - 1
+
+    # Removing axis of unused figures
+    for j in range(start_idx, last_idx + 1):
+
+        # Retrieving corresponding subfigure and remove its axes
+        ax_ = get_ax_fig(ax=ax, flat_idx=j)
+        ax_.axis("off")
 
 
 def mosaic(
@@ -149,7 +234,6 @@ def mosaic(
     if title:
         ax.set_title(title)
     ax.imshow(grid)
-
 
 
 def add_annotation_box(
@@ -379,8 +463,8 @@ def map_cell_feat(
     """Overlay a cell- or tile-level feature on the whole slide.
 
     The whole slide is read at `level_to_view` and each row of `data` is a cell drawn as a
-    filled rectangle (bounding box), rescaled from `analyse_level` to `level_to_view`. 
-    
+    filled rectangle (bounding box), rescaled from `analyse_level` to `level_to_view`.
+
     Discrete cell features get one color per unique value and a legend; continuous features are
     colored with `cmap` normalized to `limits` and get a colorbar.
 
@@ -556,6 +640,7 @@ def map_cell_feat(
 
     if show:
         plt.show()
+
 
 def draw_cut(
     slide: str | OpenWSI | openslide.OpenSlide,
@@ -802,6 +887,7 @@ def visualize_cut(
 
     # Returning path to saved image
     return cut_path
+
 
 def visualise_tile_feat(
     slide: str | OpenWSI | openslide.OpenSlide,
@@ -1301,7 +1387,6 @@ def visualise_tile_rgb(
         plt.show()
 
 
-
 def visualize_tissue_seg(
     mask: np.ndarray,
     size: tuple[int, int],
@@ -1396,7 +1481,6 @@ def visualize_tissue_seg(
     return seg_path
 
 
-
 def multiple_openslide_thumbnail(
     data_dir: str,
     outputs_dir: str = None,
@@ -1430,7 +1514,7 @@ def multiple_openslide_thumbnail(
     grayscale : bool, optional
         If True, convert to inverted gray scale (`1 - rgb2gray(wsi)`). Default is
         False.
-        
+
     verbose : bool, optional
         Whether to print the number of slides found and save messages. Default is
         True.
@@ -1481,117 +1565,3 @@ def multiple_openslide_thumbnail(
         plt.close()
         if verbose:
             print(f"Slide thumbnail saved in {outputs_dir}.")
-
-
-def dynamic_display_range(image, smoothing_sigma=1.0, min_density_ratio=0.001):
-    """
-    Compute the dynamic display range for an image channel using histogram analysis.
-
-    Parameters:
-        image (ndarray): Input image channel as a NumPy array.
-        smoothing_sigma (float): Sigma for Gaussian smoothing of the histogram.
-        min_density_ratio (float): Minimum histogram density (relative to peak) to include in the range.
-
-    Returns:
-        tuple: (lower_bound, upper_bound) for the display range.
-    """
-    # Compute the histogram
-    hist, bin_edges = np.histogram(
-        image, bins=256, range=(np.min(image), np.max(image)), density=True
-    )
-    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-
-    # Smooth the histogram to reduce noise
-    smoothed_hist = gaussian_filter1d(hist, sigma=smoothing_sigma)
-    # Determine the peak density
-    peak_density = np.max(smoothed_hist)
-
-    # Find the bounds where the histogram density exceeds a threshold
-    threshold = peak_density * min_density_ratio
-    valid_bins = bin_centers[smoothed_hist > threshold]
-
-    # Set the lower and upper bounds
-    lower_bound = valid_bins[0] if len(valid_bins) > 0 else np.min(image)
-    upper_bound = valid_bins[-1] if len(valid_bins) > 0 else np.max(image)
-
-    return lower_bound, upper_bound
-
-
-def percentil_range(image, p_low=1, p_high=99):
-    lo = np.percentile(image, p_low)
-    hi = np.percentile(image, p_high)
-    return lo, hi
-
-
-def blend_colors(
-    img,
-    colors,
-    scale_by="hist",
-    density_ratio=0.0001,
-    gammas: float | list[float] = 1,
-    alpha: float | list[float] = 1,
-    blending="add",
-    eps=1e-8,
-):
-
-    if len(colors.shape) > 1:
-        n_channel_color = colors.shape[1]
-    else:
-        n_channel_color = len(colors)
-        colors = np.expand_dims(colors, axis=0)
-
-    if img.ndim > 2:
-        r, c, nc = img.shape[:3]
-    else:
-        nc = 1
-        r, c = img.shape[:2]
-        img = np.expand_dims(img, axis=-1)
-
-    relative_imgs = []
-    for i in range(nc):
-        channel = img[..., i]
-        # relative image is how bright the channel will be
-        if scale_by == "hist":
-            lower_bound, upper_bound = dynamic_display_range(
-                channel, min_density_ratio=density_ratio
-            )
-            channel = np.clip(channel, a_min=lower_bound, a_max=upper_bound)
-        elif scale_by == "percentile":
-            lower_bound, upper_bound = percentil_range(channel)
-            channel = np.clip(channel, a_min=lower_bound, a_max=upper_bound)
-        relative_img = (channel - channel.min()) / (channel.max() - channel.min() + eps)
-
-        if isinstance(gammas, list):
-            assert (
-                len(gammas) == nc
-            ), "if you want per channel gammas, provide a list that matches"
-            relative_img = np.power(relative_img, gammas[i])
-        else:
-            relative_img = np.power(relative_img, gammas)
-        relative_imgs.append(relative_img)
-    relative_imgs = np.stack(relative_imgs, axis=-1)
-
-    # blending (switch between method)
-    blended_img = np.zeros((r, c, n_channel_color))
-    if blending == "add":
-        # Additive mixing
-        for i in range(nc):
-            for j in range(n_channel_color):
-                channel_color = colors[i, j]
-                blended_img[..., j] += channel_color * relative_imgs[..., i]
-        blended_img = np.clip(blended_img, a_min=0, a_max=255)
-        blended_img = blended_img.astype(np.uint8)
-
-    elif blending == "max":
-        argmax = np.argmax(relative_imgs, axis=-1)
-        blended_img = np.zeros((r, c, n_channel_color))
-        for i in range(nc):
-            mask = argmax == i
-            for j in range(n_channel_color):
-                channel_color = colors[i, j]
-                blended_img[..., j][mask] = channel_color * relative_imgs[..., i][mask]
-        blended_img = blended_img.astype(np.uint8)
-
-    # Add Max projection style
-
-    return blended_img
