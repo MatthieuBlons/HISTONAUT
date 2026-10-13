@@ -179,6 +179,7 @@ def save_h5(save_path, assets, attributes=None, mode="a"):
                 if attributes is not None:
                     if key in attributes.keys():
                         for attr_key, attr_val in attributes[key].items():
+
                             try:
                                 # Serialize if the attribute value is a dictionary
                                 if isinstance(attr_val, dict):
@@ -186,6 +187,8 @@ def save_h5(save_path, assets, attributes=None, mode="a"):
                                 # Serialize Nones
                                 elif attr_val is None:
                                     attr_val = "None"
+                                elif isinstance(attr_val, Path):
+                                    attr_val = str(attr_val)
                                 dset.attrs[attr_key] = attr_val
                             except Exception as e:
                                 print(e)

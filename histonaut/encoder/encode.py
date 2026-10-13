@@ -14,6 +14,7 @@ import warnings
 from typing import Optional
 from functools import partial
 import h5py
+from pathlib import Path
 
 # Data libraries
 import numpy as np
@@ -393,7 +394,7 @@ class ImageEncoder:
         paths = np.array(paths, dtype=h5py.string_dtype(encoding="utf-8"))
         # Save the features to disk
         os.makedirs(self.dst, exist_ok=True)
-        features_path = os.path.join(dst, f"features_{self.encoder.enc_name}.{save_as}")
+        features_path = Path(dst) / f"features_{self.encoder.enc_name}.{save_as}"
         if save_as == "h5":
             assets = {"features": self.features, "images": images}
             attributes = {
@@ -862,9 +863,9 @@ class TileEncoder:
 
     def visualize_embeddings(
         self,
-        method: str = "leiden",
+        method: str = "rgb",
         level_to_view: int = 4,
-        alpha: float = 1,
+        alpha: float = 0.8,
         save_vis: str | None = None,
         show: bool = False,
         **kwargs,
@@ -949,7 +950,7 @@ class TileEncoder:
         # Save visualization
         if save_vis:
             os.makedirs(save_vis, exist_ok=True)
-            vis_path = os.path.join(save_vis, f"{self.slide.name}_{method}.jpg")
+            vis_path = Path(save_vis) / f"{self.slide.name}_{method}.jpg"
             fig.savefig(vis_path)
         return vis_path
 
@@ -980,16 +981,16 @@ class TileEncoder:
         See the class docstring for the h5 layout.
         """
         # Save the features to disk
-        features_dir = os.path.join(dst, f"features_{self.encoder.enc_name}")
+        features_dir = Path(dst) / f"features_{self.encoder.enc_name}"
         os.makedirs(features_dir, exist_ok=True)
         if save_as == "h5":
-            features_path = os.path.join(features_dir, f"{self.name}.{save_as}")
+            features_path = features_dir / f"{self.name}.{save_as}"
             assets = {"features": self.features, "coords": self.tile_coords}
             attributes = {
                 "features": {
                     "encoder": self.encoder.enc_name,
                     "name": self.name,
-                    "dst": features_dir,
+                    "dst": str(features_dir),
                 },
                 "coords": self.tile_attr,
             }
