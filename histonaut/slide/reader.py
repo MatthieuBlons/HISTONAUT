@@ -287,6 +287,28 @@ class OpenWSI:
 
         self.magnification = self._fetch_magnification()
 
+    def __repr__(self) -> str:
+        return (
+            f"OpenWSI(name={self.name!r}, dimensions={self.dimensions}, "
+            f"mpp={self.mpp}), levels={self.level_count} "
+        )
+
+    def __getmeta__(self) -> dict:
+        return {
+            "path": self.path,
+            "name": self.name,
+            "ext": self.ext,
+            "dimensions": self.dimensions,
+            "width": self.width,
+            "height": self.height,
+            "level_count": self.level_count,
+            "level_dimensions": self.level_dimensions,
+            "level_downsamples": self.level_downsamples,
+            "mpp": self.mpp,
+            "magnification": self.magnification,
+            "properties": self.properties
+        }
+
     def _fetch_meta(self):
         """Fetch and store slide metadata as attributes.
 
@@ -644,6 +666,7 @@ def get_slide_image(slide, para, numpy=True):
         if numpy:
             slide = np.array(slide)[:, :, 0:3]
     return slide
+
 
 import xml.etree.ElementTree as ET
 import pyvips
