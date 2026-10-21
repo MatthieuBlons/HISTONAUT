@@ -33,6 +33,7 @@ histonaut/encoder/model_zoo/**
 !histonaut/encoder/model_zoo/local_ckpts.json
 
 # Data
+!data/**
 *.h5
 *.hdf5
 *.ndpi
