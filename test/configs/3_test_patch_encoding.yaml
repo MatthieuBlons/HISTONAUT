@@ -7,13 +7,13 @@ save_tiles: false
 tile_mpp: null
 save_rep: rgb
 num_workers: 0
-tile_encoder: conch_v15
-batch_max: 64
+tile_encoder: univ2_seal_vision
+batch_max: 32
 model_summary: 0
 pixel_size_0: null
 pixel_size_target: null
 mag_target: 20
-patch_size: 512
+patch_size: 256
 overlap: 0
 mask_strategy: luminosity
 mask_downsample: 32

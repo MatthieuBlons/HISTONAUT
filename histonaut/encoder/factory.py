@@ -17,10 +17,13 @@ so they are only required for the encoders that use them.
 """
 
 # General libraries
+import logging
 import os
+import re
 import traceback
 from abc import abstractmethod
 from functools import partial
+from pathlib import Path
 import sys
 
 # Tensor op
@@ -32,6 +35,8 @@ import timm
 
 # Project modules
 from histonaut.encoder.load import get_weights_path, get_model_path
+
+LOGGER = logging.getLogger(__name__)
 
 # ---------------------------
 # Patch-level
@@ -597,118 +602,6 @@ class UNIv2InferenceEncoder(BasePatchEncoder):
         return model, eval_transform, precision
 
 
-class SealVisionInferenceEncoder(BasePatchEncoder):
-    """Vision encoder fine-tuned with SEAL (HF `MahmoodLab/SEAL`, gated).
-
-    Loads the official SEAL vision checkpoint using SEAL's own model
-    construction/loading code (`seal.seal_factory`), preserving the LoRA /
-    PatchRecEncoder structure expected by the checkpoint. Requires the
-    MahmoodLab/SEAL repository to be installed. Registered as
-    `univ2_seal_vision` and `conch_seal_vision`. Output shape: `(B, 1536)`.
-
-    Parameters
-    ----------
-    backbone : str
-        SEAL backbone, `"univ2"` or `"conch"` (as used in `get_encoder_mapping`).
-    **build_kwargs
-        Not forwarded to `_build` (see Notes).
-
-    Notes
-    -----
-    `_build` options (`source`, `hf_repo_id`, `hf_revision`, `hf_token`,
-    `cache_dir`) are only reachable through their defaults, since `__init__`
-    calls `super().__init__()` without `build_kwargs`.
-    """
-
-    def __init__(self, backbone, **build_kwargs):
-        """Store `backbone` then build the encoder (see class docstring)."""
-        self.backbone = backbone
-        super().__init__()
-
-    def _build(
-        self,
-        source="auto",
-        hf_repo_id="MahmoodLab/SEAL",
-        hf_revision="main",
-        hf_token=None,
-        cache_dir=None,
-        **kwargs,
-    ):
-        """Load the SEAL vision encoder for `self.backbone`.
-
-        Parameters
-        ----------
-        source : str, optional
-            Checkpoint source passed to `seal_factory`. Default is `"auto"`.
-        hf_repo_id : str, optional
-            HF repository id. Default is `"MahmoodLab/SEAL"`.
-        hf_revision : str, optional
-            HF revision. Default is `"main"`.
-        hf_token : str | None, optional
-            HF token; read with `huggingface_hub.get_token()` if None. Default is None.
-        cache_dir : str | None, optional
-            HF cache directory. Default is None.
-        **kwargs
-            Ignored.
-
-        Returns
-        -------
-        tuple[torch.nn.Module, Callable, torch.dtype]
-            `(model, eval_transforms, precision)` as returned by `seal_factory`; the
-            model is set to eval mode.
-
-        Raises
-        ------
-        ImportError
-            If the `seal` package is not installed.
-        RuntimeError
-            If loading fails or SEAL returns no vision model for `self.backbone`.
-        """
-        self.enc_name = f"{self.backbone}_seal_vision"
-
-        if hf_token is None:
-            from huggingface_hub import get_token
-
-            hf_token = get_token()
-
-        try:
-            from seal import seal_factory
-        except ImportError:
-            traceback.print_exc()
-            raise ImportError(
-                f"SEAL is required for `{self.enc_name}`. "
-                "Install the MahmoodLab/SEAL repository first."
-            )
-
-        try:
-            print(f"backbone = {self.backbone}")
-            (model, eval_transform, precision), _ = seal_factory(
-                backbone=self.backbone,
-                source=source,
-                hf_repo_id=hf_repo_id,
-                hf_revision=hf_revision,
-                hf_token=hf_token,
-                cache_dir=cache_dir,
-            )  # seal_factory also returns a gene_encoder
-        except Exception:
-            traceback.print_exc()
-            raise RuntimeError(
-                "Failed to load the SEAL vision encoder. "
-                "Make sure you have access to MahmoodLab/SEAL on "
-                "Hugging Face and are authenticated."
-            )
-
-        if model is None:
-            raise RuntimeError(
-                f"SEAL did not return a vision model for backbone='{self.backbone}'. "
-                f"Check that the SEAL vision checkpoint is available for backbone='{self.backbone}'."
-            )
-
-        model.eval()
-
-        return model, eval_transform, precision
-
-
 class Conchv1InferenceEncoder(BasePatchEncoder):
     """CONCH v1 patch encoder (ViT-B/16, HF `MahmoodLab/conch`, gated).
 
@@ -824,6 +717,227 @@ class Conchv15InferenceEncoder(BasePatchEncoder):
         precision = torch.float16
         return model, eval_transform, precision
 
+# SEAL backbone -> vision checkpoint filename in the `MahmoodLab/SEAL` HF repo.
+SEAL_VISION_CHECKPOINTS = {
+    "conch": "seal_conch_vision.pth",
+    "univ2": "seal_univ2_vision.pth",
+}
+
+# Training-only heads stored in SEAL vision checkpoints, unused for embeddings
+# (`PatchRecEncoder.forward` with `decode=False, projection=False`): dropped.
+# Should not be considered as unexpected layers
+SEAL_TRAINING_HEADS = ("projection_head.", "decoder.")
+
+
+class SealVisionInferenceEncoder(BasePatchEncoder):
+    """Vision encoder fine-tuned with SEAL (HF `MahmoodLab/SEAL`, gated).
+
+    Downloads the SEAL vision checkpoint and loads it with
+    `load_seal_vision_model`, which rebuilds the LoRA / `PatchRecEncoder`
+    structure expected by the checkpoint. Requires the `seal` package
+    (`pip install -e <SEAL repo> --no-deps`). Registered as `univ2_seal_vision`
+    and `conch_seal_vision`. Embedding dim: 1536 (`univ2`), 512 (`conch`).
+
+    Parameters
+    ----------
+    backbone : str
+        SEAL backbone, one of the keys of `SEAL_VISION_CHECKPOINTS`.
+    **build_kwargs
+        Not forwarded to `_build` (see Notes).
+
+    """
+
+    def __init__(self, backbone, **build_kwargs):
+        """Store `backbone` then build the encoder (see class docstring)."""
+        self.backbone = backbone
+        super().__init__()
+
+    def _build(
+        self,
+        hf_repo_id="MahmoodLab/SEAL",
+        hf_revision="main",
+        hf_token=None,
+        cache_dir=None,
+        **kwargs,
+    ):
+        """Download the SEAL vision checkpoint of `self.backbone` and load it.
+
+        Parameters
+        ----------
+        hf_repo_id : str, optional
+            HF repository id. Default is `"MahmoodLab/SEAL"`.
+        hf_revision : str, optional
+            HF revision. Default is `"main"`.
+        hf_token : str | None, optional
+            HF token; read with `huggingface_hub.get_token()` if None. Default is None.
+        cache_dir : str | None, optional
+            HF cache directory. Default is None (HF default cache).
+        **kwargs
+            Ignored.
+
+        Returns
+        -------
+        tuple[torch.nn.Module, Callable, torch.dtype]
+            `(model, eval_transforms, precision)` from `load_seal_vision_model`.
+
+        Raises
+        ------
+        ValueError
+            If `self.backbone` is not a key of `SEAL_VISION_CHECKPOINTS`.
+        """
+        from huggingface_hub import get_token, hf_hub_download
+
+        if self.backbone not in SEAL_VISION_CHECKPOINTS:
+            raise ValueError(
+                f"Unknown SEAL `backbone` {self.backbone!r}, expected one of "
+                f"{list(SEAL_VISION_CHECKPOINTS)}."
+            )
+        self.enc_name = f"{self.backbone}_seal_vision"
+
+        if hf_token is None:
+            hf_token = get_token()
+
+        checkpoint_path = hf_hub_download(
+            repo_id=hf_repo_id,
+            filename=SEAL_VISION_CHECKPOINTS[self.backbone],
+            revision=hf_revision,
+            token=hf_token,
+            cache_dir=cache_dir,
+        )
+        return load_seal_vision_model(
+            backbone=self.backbone,
+            checkpoint_path=checkpoint_path,
+            hf_token=hf_token,
+        )
+
+
+def load_seal_vision_model(backbone, checkpoint_path, hf_token=None):
+    """Build a SEAL vision model for `backbone` and load its checkpoint.
+
+    Reimplements `seal.models.encoder_factory.load_img_model_from_checkpoint`
+    without its main pitfall: the architecture is built for `backbone`! 
+    Key mismatches raise instead of being printed.
+    The omics (gene) model and the training heads (`SEAL_TRAINING_HEADS`) are
+    not built.
+
+    Parameters
+    ----------
+    backbone : str
+        SEAL backbone, one of the keys of `SEAL_VISION_CHECKPOINTS`.
+    checkpoint_path : str | Path
+        Path to the SEAL vision checkpoint (`.pth`).
+    hf_token : str | None, optional
+        HF token, forwarded to the CONCH backbone download. Default is None.
+
+    Returns
+    -------
+    tuple[torch.nn.Module, Callable, torch.dtype]
+        `(model, eval_transforms, precision)`; `model` is a
+        `seal.models.load_model.PatchRecEncoder` in eval mode.
+
+    Raises
+    ------
+    ImportError
+        If the `seal` package is not installed.
+    RuntimeError
+        If the checkpoint has keys the model does not expect, or if LoRA weights
+        are missing from the checkpoint.
+
+    Notes
+    -----
+    Model options (LoRA rank, adapter) are read from SEAL's `conf/config.yaml`,
+    assumed to match how every backbone was trained (a LoRA rank mismatch makes
+    `load_state_dict` raise). `partial_blocks`, the number of LoRA-wrapped
+    blocks, differs between backbones and is inferred from the checkpoint.
+    SEAL reads `cache/organ_ids.json` relative to the working directory, so the
+    model is built from the SEAL repository directory.
+    """
+    import yaml
+
+    try:
+        import seal
+        from seal.models.load_model import ModelMixin
+        from seal.utils.constants import EMB_DICT
+    except ImportError as error:
+        raise ImportError(
+            "The `seal` package is required for SEAL encoders. Install the "
+            "MahmoodLab/SEAL repository with `pip install -e <SEAL repo> --no-deps --ignore-requires-python`."
+        ) from error
+
+    seal_repository_dir = Path(seal.__file__).resolve().parents[1]
+    with open(seal_repository_dir / "conf" / "config.yaml") as config_file:
+        config = yaml.safe_load(config_file)
+    checkpoint = torch.load(
+        checkpoint_path,
+        map_location="cpu",
+        weights_only=True,
+    )
+    state_dict = checkpoint.get("state_dict", checkpoint)
+    state_dict = {
+        key.removeprefix("module."): value for key, value in state_dict.items()
+    }
+    state_dict = {
+        key: value
+        for key, value in state_dict.items()
+        if not key.startswith(SEAL_TRAINING_HEADS)
+    }
+
+    # LoRA wraps the last `partial_blocks` blocks; it differs between backbones
+    # (1 for conch, 3 for univ2), so it is read from the checkpoint.
+    lora_block_ids = {
+        int(match.group(1))
+        for key in state_dict
+        if "lora_" in key and (match := re.search(r"blocks\.(\d+)\.", key))
+    }
+    if not lora_block_ids:
+        raise RuntimeError(
+            f"SEAL checkpoint `{checkpoint_path}` has no LoRA weights for `{backbone}`."
+        )
+
+    config["encoder"] = backbone
+    config["partial_blocks"] = len(lora_block_ids)
+    # No image-to-gene decoder: only used in training (see SEAL_TRAINING_HEADS).
+    config["lambda_recon_img"] = 0.0
+
+    mixin = ModelMixin()
+    mixin.conf = config
+    mixin.emb_dict = EMB_DICT
+
+    current_dir = os.getcwd()
+    os.chdir(seal_repository_dir)
+    try:
+        model, eval_transform, precision = mixin.get_img_model(
+            backbone,
+            partial_blocks=config["partial_blocks"],
+            use_adapter=config["use_adapter"],
+            adapter_bottleneck=config["adapter_bottleneck"],
+            hf_token=hf_token,
+        )
+    finally:
+        os.chdir(current_dir)
+
+    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+    if unexpected_keys:
+        raise RuntimeError(
+            f"SEAL checkpoint `{checkpoint_path}` does not match the `{backbone}` "
+            f"model, unexpected keys: {unexpected_keys}"
+        )
+    missing_lora_keys = [key for key in missing_keys if "lora_" in key]
+    if missing_lora_keys:
+        raise RuntimeError(
+            f"SEAL checkpoint `{checkpoint_path}` has no LoRA weights for "
+            f"`{backbone}`, missing keys: {missing_lora_keys}"
+        )
+    if missing_keys:
+        LOGGER.warning(
+            "SEAL checkpoint %s: %d keys kept from the pretrained backbone: %s",
+            checkpoint_path,
+            len(missing_keys),
+            missing_keys,
+        )
+
+    model.eval()
+    return model, eval_transform, precision
 
 class GigaPathInferenceEncoder(BasePatchEncoder):
     """Prov-GigaPath patch encoder (HF `prov-gigapath/prov-gigapath`, via `timm`).

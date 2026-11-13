@@ -21,7 +21,7 @@ replace the parser defaults; arguments typed on the command line still win.
 
 Example
 -------
-python test/3_test_patch_encoding.py \\
+python 3_test_patch_encoding.py \\
     --src HISTONAUT/data/HE/ \\
     --dst . \\
     --gpu \\
