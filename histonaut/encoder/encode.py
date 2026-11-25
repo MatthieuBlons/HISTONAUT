@@ -345,7 +345,7 @@ class ImageEncoder:
         progress = self.progress_bar(dataloader.__len__(), verbose=self.verbose)
         features = []
         for batch_imgs in dataloader:
-            batch_imgs = batch_imgs.to(self.device, self.precision)
+            batch_imgs = batch_imgs.to(self.device)
             with torch.autocast(
                 device_type=self.device,
                 dtype=self.precision,
@@ -751,7 +751,7 @@ class TileEncoder:
         progress = self.progress_bar(dataloader.__len__(), verbose=self.verbose)
         features = []
         for batch_tiles, _ in dataloader:
-            batch_tiles = batch_tiles.to(self.device, self.precision)
+            batch_tiles = batch_tiles.to(self.device)
             with torch.autocast(
                 device_type=self.device,
                 dtype=self.precision,
