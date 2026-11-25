@@ -1,6 +1,6 @@
 ext: svs
 custom_xywh: null
-overwrite: false
+overwrite: true
 save_mask: true
 save_grid: true
 save_tiles: false

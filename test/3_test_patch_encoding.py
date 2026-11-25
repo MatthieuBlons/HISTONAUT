@@ -699,6 +699,9 @@ def main(
 
     device = resolve_device(args)
     model = resolve_encoder(args, device)
+
+    LOGGER.info("Ready to start with Backbone: %s, Precision: %s", model.enc_name, model.precision)
+
     output_dirs = build_test_directory(args, encoder_name=model.enc_name)
     slides = resolve_input_slides(args, output_dirs["features"])
 
