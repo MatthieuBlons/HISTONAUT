@@ -111,7 +111,7 @@ def fetch_embeddings_dim(tile_encoder):
         embedding_dim = 1024
     elif tile_encoder == "resnet50":
         embedding_dim = 1024
-    elif tile_encoder == "gigapath":
+    elif tile_encoder == "prov_gigapath":
         embedding_dim = 1536
     elif tile_encoder == "virchow":
         embedding_dim = 2560
