@@ -1,5 +1,6 @@
 {
     "conch_v1": "",
+    "conch_v15": "./conchv1_5/pytorch_model_vision.bin",
     "uni_v1": "",
     "uni_v2": "",
     "ctranspath": "./ctranspath/CHIEF_CTransPath.pth",
@@ -11,7 +12,7 @@
     "hoptimus0": "",
     "hoptimus1": "",
     "phikon_v2": "./phikon_v2",
-    "conch_v15": "./conchv1_5/pytorch_model_vision.bin",
     "custom_encoder": "",  
-    "chief": "/cluster/CBIO/home/mblons/py-packages/_external/CHIEF"
+    "chief": "/cluster/CBIO/home/mblons/py-packages/_external/CHIEF",
+    "titan": ""
 }

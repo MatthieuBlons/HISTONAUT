@@ -107,12 +107,24 @@ def build_test_parser() -> ArgumentParser:
         default=None,
         help="Directory holding the `<slide>.h5` features files. Required.",
     )
-
+    parser.add_argument(
+        "--list",
+        type=str,
+        nargs="*",
+        default=None,
+        help="Slide file names to process. When omitted, process all slides.",
+    )
     parser.add_argument(
         "--dst",
         type=str,
         default=None,
         help="Directory to store outputs. Defaults to the parent of `src_feat`.",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        default=False,
+        help="Reprocess slides whose features file already exists.",
     )
 
     # Slide-Encoder
@@ -285,7 +297,7 @@ def build_test_directory(
 
 def resolve_input_slides(
     args: Namespace,
-    features_dir: Path,
+    output_dir: Path,
 ) -> list[Path]:
     """
     List the features files to process.
@@ -309,12 +321,12 @@ def resolve_input_slides(
     FileNotFoundError
         If no file with extension `h5` is found in `src`.
     """
-    src = Path(args.src)
+    src = Path(args.src_feat)
     slides = sorted(src.glob(f"**/*.h5"))
     LOGGER.info(
         "%s slide(s) with extension .%s found in %s",
         len(slides),
-        args.ext,
+        "h5",
         src,
     )
 
@@ -330,7 +342,7 @@ def resolve_input_slides(
 
     # Skip slides already encoded, unless asked to overwrite
     if not args.overwrite:
-        processed_names = {path.stem for path in features_dir.glob("*.h5")}
+        processed_names = {path.stem for path in output_dir.glob("*.h5")}
         slides = [slide for slide in slides if slide.stem not in processed_names]
         LOGGER.info("%s slide(s) already processed are skipped", len(processed_names))
 
@@ -345,7 +357,6 @@ def resolve_input_slides(
 
 def resolve_encoder(
     args: Namespace,
-    slide_encoder: str,
     device: str,
 ) -> torch.nn.Module:
     """
@@ -378,6 +389,7 @@ def resolve_encoder(
         with another patch encoder.
     """
     encoders = {}
+    slide_encoder = args.slide_encoder
     encoders["slide"] = slide_encoder
 
     src = Path(args.src_feat)
@@ -447,7 +459,7 @@ def main(
     timer = timetracker(verbose=args.clock)
     progress = tqdm(
         slides,
-        desc=f"Encoding {args.patch_size}x{args.patch_size}px at {args.mag_target}x",
+        desc=f"Aggregating patch with: {args.slide_encoder}",
         unit="wsi",
         disable=not args.tqdm,
     )
@@ -457,7 +469,7 @@ def main(
         slide_name = slide_path.stem
         progress.set_postfix_str(f"slide: {slide_name}", refresh=True)
         _ = aggragate_tiles_features(
-            features_path=output_dirs["features"],
+            features_path=slide_path,
             slide_encoder=model,
             device=device,
             dst=output_dirs["features_aggregated"],
@@ -465,9 +477,9 @@ def main(
 
     progress.close()
     timer.toc()
-    LOGGER.info("Encoding done, results saved to %s", output_dirs["root"])
+    LOGGER.info("Encoding done, results saved to %s", output_dirs["features_aggregated"])
 
-    return output_dirs["root"]
+    return output_dirs["features_aggregated"]
 
 
 if __name__ == "__main__":

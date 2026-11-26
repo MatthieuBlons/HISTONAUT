@@ -2164,33 +2164,61 @@ class MadeleineSlideEncoder(BaseSlideEncoder):
         return z
 
 
+# HF Hub repo of THREADS (gated) and the file names it holds.
+THREADS_HF_HUB_ID = "hf_hub:MahmoodLab/threads"
+THREADS_CONFIG_FILENAME = "config.json"
+THREADS_CHECKPOINT_FILENAME = "threads_model.pt"
+
+
 class ThreadsSlideEncoder(BaseSlideEncoder):
     """THREADS slide encoder (`threadsmodel` package, CONCH v1.5 features).
 
-    Not implemented yet: `_build` returns no model and `forward` returns None.
+    Multi-head ABMIL over CONCH v1.5 patch features (768-dim) of
+    non-overlapping 512 x 512 px patches at 20x. Weights come from a local
+    directory registered as `"threads"` in `local_ckpts.json` (holding
+    `config.json` and `threads_model.pt`), otherwise from the gated HF repo
+    `MahmoodLab/threads`. Requires `pip install
+    git+https://github.com/mahmoodlab/threadsmodel.git`. 
+    
+    Embedding dim: 1024.
 
     Parameters
     ----------
-    **build_kwargs
-        Forwarded to `BaseSlideEncoder` (`freeze`, `pretrained`).
+    pretrained : bool, optional
+        Load pretrained weights, else build a randomly initialised model from
+        the config. Default is True.
+    cache_dir : str | Path | None, optional
+        HF Hub cache directory. Default is None (HF default cache).
+    hf_token : str | None, optional
+        HF access token. Default is None (token of `huggingface-cli login`).
+
+    Notes
+    -----
+    For a patient with several slides, concatenate their patch features along
+    the patch dimension and encode them once (one embedding per patient).
     """
 
-    def __init__(self, **build_kwargs):
-        """Initialise THREADS (see class docstring)."""
-        super().__init__(**build_kwargs)
-
-    def _build(self, pretrained=True):
-        """Check that `threadsmodel` is importable (placeholder).
+    def _build(
+        self,
+        pretrained=True,
+        cache_dir=None,
+        hf_token=None,
+    ):
+        """Load THREADS from local weights or the HF Hub.
 
         Returns
         -------
-        tuple[None, None, None]
-            `(None, None, None)`.
+        tuple[torch.nn.Module, torch.dtype, int]
+            `(model, precision, embedding_dim)`: precision read from the
+            THREADS config, 1024.
 
         Raises
         ------
-        Exception
-            If `threadsmodel` cannot be imported.
+        ImportError
+            If `threadsmodel` is not installed.
+        FileNotFoundError
+            If the registered local directory misses `config.json` or
+            `threads_model.pt`.
         """
 
         self.enc_name = "threads"
@@ -2200,29 +2228,86 @@ class ThreadsSlideEncoder(BaseSlideEncoder):
                 create_model,
                 create_model_from_pretrained,
             )
-        except:
-            traceback.print_exc()
-            raise Exception("Coming Soon! Thanks for your patience.")
+        except ImportError as error:
+            raise ImportError(
+                "THREADS needs the `threadsmodel` package: "
+                "`pip install git+https://github.com/mahmoodlab/threadsmodel.git`"
+            ) from error
 
-        return None, None, None
+        local_dir = self._get_local_dir()
+        if local_dir is not None:
+            config_path = local_dir / THREADS_CONFIG_FILENAME
+            checkpoint_path = local_dir / THREADS_CHECKPOINT_FILENAME
+            required_paths = [config_path]
+            if pretrained:
+                required_paths.append(checkpoint_path)
+            for path in required_paths:
+                if not path.is_file():
+                    raise FileNotFoundError(
+                        f"Missing THREADS file `{path}`. Download `{path.name}` from "
+                        f"https://huggingface.co/MahmoodLab/threads into `{local_dir}`."
+                    )
+            LOGGER.info("Loading THREADS from local directory %s", local_dir)
+            model_kwargs = {
+                "checkpoint_path": str(checkpoint_path),
+                "cfg_path": str(config_path),
+            }
+        else:
+            LOGGER.info("Loading THREADS from the HF Hub (%s)", THREADS_HF_HUB_ID)
+            model_kwargs = {
+                "checkpoint_path": THREADS_HF_HUB_ID,
+                "cache_dir": None if cache_dir is None else str(cache_dir),
+                "hf_auth_token": hf_token,
+            }
+
+        if pretrained:
+            model, precision, embedding_dim = create_model_from_pretrained(
+                **model_kwargs,
+            )
+        else:
+            model, precision, embedding_dim = create_model(
+                **model_kwargs,
+            )
+
+        return model, precision, embedding_dim
+
+    def _get_local_dir(self):
+        """Return the local THREADS directory from `local_ckpts.json`, if any.
+
+        Returns
+        -------
+        Path | None
+            Registered directory, or None if `"threads"` has no (or an empty)
+            entry in the registry.
+        """
+        try:
+            return Path(get_weights_path("slide", self.enc_name))
+        except ValueError:
+            return None
 
     def forward(self, batch, device="cuda", return_raw_attention=False):
-        """Not implemented; return None.
+        """Encode a slide (or a patient) with the THREADS ABMIL pooling.
 
         Parameters
         ----------
         batch : dict[str, Any]
-            Slide batch.
+            Must contain `"features"`, shape `(B, N, 768)` (CONCH v1.5 features).
         device : str, optional
-            Device. Default is `"cuda"`.
+            Device to move the features to. Default is `"cuda"`.
         return_raw_attention : bool, optional
-            Return attention weights. Default is False.
+            Also return the attention scores before softmax. Default is False.
 
         Returns
         -------
-        None
+        torch.Tensor | tuple[torch.Tensor, torch.Tensor]
+            Slide embedding, shape `(B, 1024)`; with `return_raw_attention`,
+            also the raw attention scores, shape `(B, N, 1, 2)` (two heads).
         """
-        pass
+        z = self.model(
+            batch["features"].to(device),
+            return_raw_attention=return_raw_attention,
+        )
+        return z
 
 
 class TitanSlideEncoder(BaseSlideEncoder):
